@@ -1,0 +1,43 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "bash dev.sh",
+    "build": "unset __NEXT_PRIVATE_STANDALONE_CONFIG TURBOPACK && next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "immer": "^11.1.15",
+    "lucide-react": "^1.26.0",
+    "next": "16.2.11",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "sse.js": "^2.8.0",
+    "swr": "^2.4.2",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.5.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.11",
+    "postcss": "^8.5.22",
+    "tailwindcss": "3.4.17",
+    "typescript": "^5"
+  },
+  "pnpm": {
+    "overrides": {
+      "brace-expansion": "5.0.8",
+      "js-yaml@>=4.0.0 <5.0.0": "4.3.0",
+      "minimatch@3.1.5": "10.2.5",
+      "postcss@<8.5.18": "8.5.22",
+      "sharp@<0.35.0": "0.35.0"
+    }
+  }
+}

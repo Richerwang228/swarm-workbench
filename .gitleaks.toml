@@ -1,0 +1,10 @@
+title = "Swarm Workbench gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Unmistakable placeholder values in the public environment template"
+paths = [
+  '''\.env\.example$''',
+]

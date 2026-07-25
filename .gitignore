@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+wheels/
+
+# Virtual environment
+.venv/
+
+# Node
+node_modules/
+.next/
+out/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Data (本地运行时数据，不入 git)
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reference repos (不入 git)
+.reference/
+
+# Logs
+.logs/
+*.log
+.coverage
+
+# Build artifacts
+*.tsbuildinfo

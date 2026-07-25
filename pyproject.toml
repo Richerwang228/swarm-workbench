@@ -17,7 +17,7 @@ dependencies = [
     # LangGraph orchestration
     "langgraph>=0.4.0",
     # LLM gateway
-    "litellm>=1.60.0",
+    "litellm>=1.84.0",
     # Data & validation
     "pydantic>=2.10.0",
     "python-dotenv>=1.0.0",

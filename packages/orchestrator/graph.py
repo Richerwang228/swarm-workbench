@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import os
+import asyncio
+import math
 
 from langgraph.graph import END, StateGraph
 from langgraph.types import Send
 
 from packages.orchestrator.checkpointer import get_checkpointer
-from packages.orchestrator.nodes.compact import compact_node
+from packages.orchestrator.nodes.finalize import finalize_node
 from packages.orchestrator.nodes.planner import planner_node
 from packages.orchestrator.nodes.reduce import reduce_node
 from packages.orchestrator.nodes.route import route_node
@@ -24,7 +25,7 @@ def build_graph():
     builder.add_node("dispatch", _dispatch_node)
     builder.add_node("worker", _worker_node)
     builder.add_node("reduce", reduce_node)
-    builder.add_node("compact", compact_node)
+    builder.add_node("finalize", finalize_node)
 
     builder.set_entry_point("route")
     builder.add_conditional_edges(
@@ -36,9 +37,11 @@ def build_graph():
     builder.add_conditional_edges("dispatch", _dispatch_fan_out, ["worker"])
     builder.add_edge("worker", "reduce")
     builder.add_conditional_edges(
-        "reduce", _after_reduce, {"continue": "planner", "done": "compact"}
+        "reduce",
+        _after_reduce,
+        {"continue": "dispatch", "done": "finalize", "blocked": "finalize"},
     )
-    builder.add_edge("compact", END)
+    builder.add_edge("finalize", END)
 
     checkpointer = get_checkpointer()
     return builder.compile(checkpointer=checkpointer)
@@ -51,10 +54,7 @@ async def _dispatch_node(state: OrchestratorState) -> OrchestratorState:
 
 def _dispatch_fan_out(state: OrchestratorState) -> list[Send]:
     """从 pending todo 中取任务，Send 到 worker 并行执行。"""
-    from packages.orchestrator.nodes.dispatch import ROLE_MODEL_MAP
-
-    configured_max = int(os.getenv("MAX_CONCURRENT_SUBAGENTS", "5"))
-    max_concurrent = max(1, min(state.get("max_subagents", configured_max), configured_max))
+    max_concurrent = max(1, min(state.get("max_subagents", 5), 100))
     pending = [t for t in state.get("todo", []) if t["status"] == "pending" and not t["depends_on"]]
     wave = pending[:max_concurrent]
 
@@ -66,7 +66,10 @@ def _dispatch_fan_out(state: OrchestratorState) -> list[Send]:
                 "current_task_id": t["id"],
                 "current_task": t["description"],
                 "current_role": t["assigned_role"],
-                "current_model": ROLE_MODEL_MAP.get(t["assigned_role"], "worker"),
+                "current_model": state.get("role_models", {}).get(
+                    t["assigned_role"],
+                    state.get("model_pref", "worker"),
+                ),
             },
         )
         for t in wave
@@ -76,16 +79,18 @@ def _dispatch_fan_out(state: OrchestratorState) -> list[Send]:
 async def _worker_node(state: OrchestratorState) -> dict:
     """Worker node — 运行一个 sub-agent task，结果写回 state。"""
     from packages.eventbus.publisher import emit_raw, emit_summary
+    from packages.orchestrator.capacity import get_capacity
     from packages.worker.runner import run_worker
 
     task_id = state["trace_id"]
     current_task_id = str(state.get("current_task_id") or "single")
     task = str(state.get("current_task") or state["prompt"])
     role = state.get("current_role", "pm")
-    model = state.get("current_model", "worker")
+    model = state.get("current_model") or state.get("role_models", {}).get(
+        role,
+        state.get("model_pref", "worker"),
+    )
     agent_id = f"{current_task_id}:{role}"
-
-    result_parts: list[str] = []
 
     await emit_raw(
         task_id,
@@ -94,37 +99,55 @@ async def _worker_node(state: OrchestratorState) -> dict:
             "agent_id": agent_id,
             "role": role,
             "task": task,
-            "status": "running",
+            "status": "queued",
+            "model_route": model,
         },
     )
-    if current_task_id != "single":
+    await emit_summary(task_id, agent_id, "spawned", "Waiting for global capacity")
+
+    result_parts: list[str] = []
+    terminal_status = "done"
+    try:
+        async with get_capacity().slot():
+            if current_task_id != "single":
+                await emit_raw(
+                    task_id,
+                    {
+                        "type": "todo.update",
+                        "id": current_task_id,
+                        "description": task,
+                        "status": "running",
+                        "role": role,
+                        "depends_on": [],
+                    },
+                )
+            await emit_summary(task_id, agent_id, "running", f"Started: {task[:60]}")
+
+            async for event in run_worker(
+                task_id=task_id,
+                task=task,
+                role=role,
+                model=model,
+                tool_budget=state.get("step_budget", 50),
+                agent_id=agent_id,
+            ):
+                if event.get("type") == "agent.done":
+                    result_parts.append(event.get("content", ""))
+    except Exception as exc:
+        terminal_status = "failed"
+        result_parts = [f"Agent failed: {type(exc).__name__}"]
         await emit_raw(
             task_id,
             {
-                "type": "todo.update",
-                "id": current_task_id,
-                "description": task,
-                "status": "running",
+                "type": "agent.failed",
+                "agent_id": agent_id,
                 "role": role,
-                "depends_on": [],
+                "error_type": type(exc).__name__,
             },
         )
-    await emit_summary(task_id, agent_id, "running", f"Started: {task[:60]}")
-
-    async for event in run_worker(
-        task_id=task_id,
-        task=task,
-        role=role,
-        model=model,
-        tool_budget=state.get("step_budget", 50),
-        agent_id=agent_id,
-    ):
-        if event.get("type") == "agent.done":
-            result_parts.append(event.get("content", ""))
 
     result = "\n".join(result_parts) or "(no output)"
-
-    await emit_summary(task_id, agent_id, "done", result[:80])
+    await emit_summary(task_id, agent_id, terminal_status, result[:80])
     if current_task_id != "single":
         await emit_raw(
             task_id,
@@ -132,7 +155,7 @@ async def _worker_node(state: OrchestratorState) -> dict:
                 "type": "todo.update",
                 "id": current_task_id,
                 "description": task,
-                "status": "done",
+                "status": terminal_status,
                 "role": role,
                 "depends_on": [],
             },
@@ -140,18 +163,18 @@ async def _worker_node(state: OrchestratorState) -> dict:
 
     # 更新 todo list 中对应 item 的状态
     updated_todo = [
-        {**t, "status": "done", "result": result} if t["id"] == current_task_id else t
+        {**t, "status": terminal_status, "result": result} if t["id"] == current_task_id else t
         for t in state.get("todo", [])
     ]
     updated_runs = [
-        *state.get("sub_agent_runs", []),
         {
             "agent_id": agent_id,
             "role": role,
             "task_id": current_task_id,
-            "status": "done",
+            "status": terminal_status,
             "tool_calls": 0,
             "tokens_used": 0,
+            "result": result,
         },
     ]
     return {"todo": updated_todo, "sub_agent_runs": updated_runs}
@@ -170,10 +193,9 @@ def _after_reduce(state: OrchestratorState) -> str:
     pending = [t for t in state.get("todo", []) if t["status"] not in ("done", "failed")]
     if not pending:
         return "done"
-    # 防止死循环：如果没有 depends_on=[] 的 pending 任务（全都在等依赖），也结束
     unblocked = [t for t in pending if not t.get("depends_on")]
     if not unblocked:
-        return "done"
+        return "blocked"
     return "continue"
 
 
@@ -192,11 +214,25 @@ async def run_task(
     prompt: str,
     mode: str = "auto",
     max_subagents: int = 5,
+    agent_count: int = 4,
+    exact_agent_count: bool = False,
+    max_steps_per_agent: int = 6,
+    max_total_model_calls: int = 500,
+    max_total_tool_calls: int = 500,
+    timeout_seconds: int = 900,
 ):
     """启动一个 swarm task（由 FastAPI background task 调用）。"""
     from packages.eventbus.publisher import emit_raw
+    from packages.orchestrator.budget import BudgetLedger, bind_budget, reset_budget
 
     graph = get_graph()
+    from packages.llm_gateway.router import current_profiles
+
+    profiles = current_profiles()
+    role_models = (
+        {str(role): model for role, model in profiles.role_models.items()} if profiles else {}
+    )
+    default_model = profiles.default_model if profiles else "worker"
     initial_state: OrchestratorState = {
         "trace_id": task_id,
         "prompt": prompt,
@@ -206,17 +242,56 @@ async def run_task(
         "sub_agent_runs": [],
         "blackboard_key": f"blackboard:{task_id}",
         "current_step": 0,
-        "step_budget": 50,
-        "model_pref": "worker",
-        "max_subagents": max(1, min(max_subagents, 8)),
+        "step_budget": max(1, min(max_steps_per_agent, 20)),
+        "model_pref": role_models.get("planner", default_model),
+        "role_models": role_models,
+        "agent_count": max(1, min(agent_count, 100)),
+        "exact_agent_count": exact_agent_count,
+        "planned": False,
+        "max_subagents": max(1, min(max_subagents, 100)),
         "interrupted": False,
         "interrupt_message": None,
     }
-    config = {"configurable": {"thread_id": task_id}}
+    concurrency = max(1, min(max_subagents, 100))
+    waves = math.ceil(max(1, min(agent_count, 100)) / concurrency)
+    config = {
+        "configurable": {"thread_id": task_id},
+        "max_concurrency": concurrency,
+        "recursion_limit": max(50, waves * 4 + 10),
+    }
+    ledger = BudgetLedger(
+        max_model_calls=max(1, min(max_total_model_calls, 2_000)),
+        max_tool_calls=max(0, min(max_total_tool_calls, 5_000)),
+    )
+    budget_token = bind_budget(ledger)
     try:
-        await emit_raw(task_id, {"type": "task.started", "task_id": task_id, "prompt": prompt})
-        await graph.ainvoke(initial_state, config=config)
-        await emit_raw(task_id, {"type": "task.completed", "task_id": task_id})
+        await emit_raw(task_id, {"type": "task.started", "task_id": task_id})
+        async with asyncio.timeout(max(30, min(timeout_seconds, 3_600))):
+            result = await graph.ainvoke(initial_state, config=config)
+        budget = ledger.snapshot()
+        runs = result.get("sub_agent_runs", [])
+        failed_agents = sum(1 for run in runs if run["status"] != "done")
+        await emit_raw(
+            task_id,
+            {
+                "type": "task.completed",
+                "task_id": task_id,
+                "result": result.get("final_result", ""),
+                "model_calls": budget.model_calls,
+                "tool_calls": budget.tool_calls,
+                "agent_failures": failed_agents,
+                "outcome": "completed" if failed_agents == 0 else "partial",
+            },
+        )
     except Exception as exc:
-        await emit_raw(task_id, {"type": "task.error", "task_id": task_id, "error": str(exc)})
+        await emit_raw(
+            task_id,
+            {
+                "type": "task.error",
+                "task_id": task_id,
+                "error_type": type(exc).__name__,
+            },
+        )
         raise
+    finally:
+        reset_budget(budget_token)

@@ -10,11 +10,23 @@ and copied logs may also be hostile.
 
 - Demo mode makes no provider, network, file, or shell call.
 - API input length, mode, and concurrency are validated.
-- CORS defaults to the two local development origins.
+- API and web startup bind to loopback. CORS and Host headers default to local
+  development values.
+- Inline provider keys remain in API process memory, are omitted from reads,
+  and are not echoed in validation errors.
+- Native provider kinds use their official LiteLLM endpoint. Custom remote
+  endpoints require HTTPS and are checked for literal and currently-resolved
+  non-public addresses. Local/private endpoints require explicit opt-in.
+- Models receive role/task context, not provider credentials or Base URLs.
+- Live fan-out is bounded by process, deployment, model-call, tool-call, step,
+  and wall-clock limits.
 - File paths are resolved beneath `WORKSPACE_ROOT`; traversal and symlink
   escapes are rejected.
 - Host shell is disabled unless `ALLOW_LOCAL_EXECUTION=true`.
 - The local shell receives a restricted environment and bounded timeout.
+  Cancellation and timeout terminate its process group.
+- All side-effecting tools share one process-local serialization lock; each
+  model turn can request at most eight tools.
 - Only implemented tools are registered.
 - `.env*` is ignored except for a placeholder-only example.
 - CI includes secret scanning and CodeQL.
@@ -22,12 +34,22 @@ and copied logs may also be hostile.
 ## Explicit non-goals in this beta
 
 The local process is not a hardened sandbox. There is no authentication,
-authorization, tenant isolation, egress policy, or durable audit log. A model
+authorization, tenant isolation, redirect-pinning egress proxy, OS-keychain
+integration, or durable audit log. DNS is checked when a profile is applied,
+but this is not a complete DNS-rebinding defense for a shared service. A model
 with shell permission has the authority of the current OS user within limits
 that are defense-in-depth, not a security boundary.
+
+The application must not be exposed as a shared public service. Prompts, tool
+arguments, and tool results are observable in the local process and bounded
+event replay while a task exists; do not put passwords, API keys, or personal
+secrets in a task. A hosted mode
+would additionally require authentication, tenant ownership checks, CSRF
+protection, tenant-scoped secrets/events/workspaces, durable quotas, and a
+hardened egress gateway.
 
 ## Safe evaluation
 
 Use `./start.sh --demo`, bind only to localhost, keep local execution disabled,
-use a disposable workspace, and never paste production credentials or sensitive
-documents into a task.
+use a disposable workspace, begin with low Agent/concurrency limits, and use
+restricted development credentials rather than production keys.

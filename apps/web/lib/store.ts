@@ -3,12 +3,13 @@
  */
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
+import type { BenchmarkReport } from "./api";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type TodoStatus = "pending" | "running" | "done" | "failed";
 export type AgentStatus = "spawned" | "running" | "done" | "failed";
-export type TaskMode = "demo" | "auto" | "single" | "swarm";
+export type TaskMode = "demo" | "auto" | "single" | "swarm" | "benchmark";
 
 export interface TodoItem {
   id: string;
@@ -28,6 +29,7 @@ export interface AgentBadge {
   lastAction: string;
   spawnedAt: number;
   elapsedMs: number;
+  recovered: boolean;
 }
 
 export interface ChatMessage {
@@ -47,10 +49,24 @@ export interface ToolCallEntry {
   ts: number;
 }
 
+export interface BenchmarkProgress {
+  simulated: true;
+  agentCount: number;
+  completed: number;
+  active: number;
+  queued: number;
+  recovered: number;
+  peakActive: number;
+  processActive: number;
+  maxConcurrency: number;
+  processCapacity: number;
+  seed: number;
+}
+
 export interface SwarmState {
   // Task
   taskId: string | null;
-  taskStatus: "idle" | "running" | "completed" | "failed";
+  taskStatus: "idle" | "running" | "completed" | "failed" | "cancelled";
   mode: TaskMode;
   prompt: string;
 
@@ -65,6 +81,10 @@ export interface SwarmState {
   // Agent swarm
   agents: Record<string, AgentBadge>;
   agentOrder: string[];
+
+  // Deterministic logical-agent benchmark
+  benchmarkProgress: BenchmarkProgress | null;
+  benchmarkReport: BenchmarkReport | null;
 
   // Tool call log for activity feed (capped at 50)
   toolCallLog: ToolCallEntry[];
@@ -88,9 +108,13 @@ export interface SwarmState {
 
   spawnAgent: (badge: AgentBadge) => void;
   updateAgentStatus: (agentId: string, status: AgentStatus, lastAction?: string) => void;
+  markAgentRecovered: (agentId: string, recovered: boolean) => void;
   incrementAgentToolCalls: (agentId: string, tool: string, args: unknown) => void;
   updateAgentTokens: (agentId: string, delta: number) => void;
   tickAgentElapsed: () => void;
+  startBenchmark: (progress: BenchmarkProgress) => void;
+  updateBenchmarkProgress: (progress: Partial<BenchmarkProgress>) => void;
+  setBenchmarkReport: (report: BenchmarkReport) => void;
 
   setLastToolCall: (tc: SwarmState["lastToolCall"]) => void;
   reset: () => void;
@@ -109,6 +133,8 @@ const initialState = {
   todos: [] as TodoItem[],
   agents: {} as Record<string, AgentBadge>,
   agentOrder: [] as string[],
+  benchmarkProgress: null as BenchmarkProgress | null,
+  benchmarkReport: null as BenchmarkReport | null,
   toolCallLog: [] as ToolCallEntry[],
   lastToolCall: null as SwarmState["lastToolCall"],
 };
@@ -173,9 +199,21 @@ export const useSwarmStore = create<SwarmState>()(
 
     spawnAgent: (badge) =>
       set((s) => {
-        s.agents[badge.agentId] = { ...badge, tokenCount: 0, elapsedMs: 0 };
+        s.agents[badge.agentId] = {
+          ...badge,
+          tokenCount: badge.tokenCount ?? 0,
+          elapsedMs: badge.elapsedMs ?? 0,
+          recovered: badge.recovered ?? false,
+        };
         if (!s.agentOrder.includes(badge.agentId)) {
           s.agentOrder.push(badge.agentId);
+        }
+      }),
+
+    markAgentRecovered: (agentId, recovered) =>
+      set((s) => {
+        if (s.agents[agentId]) {
+          s.agents[agentId].recovered = recovered;
         }
       }),
 
@@ -222,6 +260,30 @@ export const useSwarmStore = create<SwarmState>()(
           if (s.agents[id]?.status === "running") {
             s.agents[id].elapsedMs += 1000;
           }
+        }
+      }),
+
+    startBenchmark: (progress) =>
+      set((s) => {
+        s.benchmarkProgress = progress;
+        s.benchmarkReport = null;
+      }),
+
+    updateBenchmarkProgress: (progress) =>
+      set((s) => {
+        if (!s.benchmarkProgress) return;
+        Object.assign(s.benchmarkProgress, progress);
+      }),
+
+    setBenchmarkReport: (report) =>
+      set((s) => {
+        s.benchmarkReport = report;
+        if (s.benchmarkProgress) {
+          s.benchmarkProgress.completed = report.completed;
+          s.benchmarkProgress.active = 0;
+          s.benchmarkProgress.queued = 0;
+          s.benchmarkProgress.recovered = report.recovered;
+          s.benchmarkProgress.peakActive = report.peak_active;
         }
       }),
 

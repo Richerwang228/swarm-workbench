@@ -8,15 +8,16 @@
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB.svg)](pyproject.toml)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](apps/web/package.json)
 
-**A local-first workbench for observing how a bounded group of AI agents plans,
-works in parallel, and reports its trace.**
+**A local-first, multi-provider runtime for planning and observing up to 100
+live AI agents—with user-controlled model routing and concurrency.**
 
 ![Swarm Workbench demo](docs/assets/swarm-workbench-demo.png)
 
 > [!IMPORTANT]
 > This is a portfolio-grade reference implementation and public beta, not a
-> production agent framework. The built-in demo is deterministic and simulated;
-> live LLM execution is optional and experimental.
+> hosted production service. Its runtime is contract-tested with 100 concurrent
+> OpenAI-compatible requests. Real vendor throughput, cost, and rate limits
+> depend on the user's account and are not claimed by that local test.
 
 ## Why this project
 
@@ -32,6 +33,16 @@ begin.
 ## What works today
 
 - A no-key, no-network demo that completes an observable four-role workflow.
+- A deterministic `SWARM 100 · SIMULATED` scheduler benchmark for CI and local
+  capacity checks.
+- A fixed-plan live DAG with up to 100 unique worker agents and optional exact
+  agent counts.
+- In-memory configuration for multiple providers and models, with nine
+  user-controlled role-to-model bindings.
+- Global, per-model, per-task, model-call, tool-call, step, and wall-clock
+  limits; parent-task cancellation propagates to live agents.
+- Hierarchical result reduction that keeps 100 worker outputs out of one
+  oversized prompt.
 - `single`, `swarm`, and heuristic `auto` orchestration paths for optional live
   providers.
 - Bounded parallel dispatch with deterministic todo result merging.
@@ -40,6 +51,11 @@ begin.
 - Provider routing through LiteLLM when the user supplies environment variables.
 - Workspace-scoped file tools; host shell execution is disabled by default.
 - Python unit/integration tests and frontend lint, typecheck, and production build.
+
+The live contract suite starts a local OpenAI-compatible server, generates one
+100-item plan, and verifies 100 streaming provider requests are simultaneously
+in flight. This proves the runtime path—not third-party quota or model quality.
+See [Live 100 evidence and boundaries](docs/LIVE_100.md).
 
 See the evidence-based [capability status](docs/STATUS.md) before evaluating a
 feature claim.
@@ -70,10 +86,13 @@ flowchart LR
     W -->|POST task| A["FastAPI task API"]
     A --> O{"Task mode"}
     O -->|demo| D["Deterministic demo runner"]
+    O -->|benchmark| B["Deterministic Swarm 100 benchmark"]
     O -->|single / swarm| G["LangGraph orchestrator"]
-    G --> L["LiteLLM provider router"]
+    G --> C["Global agent capacity + task budgets"]
+    C --> L["LiteLLM multi-provider router"]
     G --> T["Opt-in tools"]
     D --> E["In-process event broker"]
+    B --> E
     G --> E
     E -->|wildcard + replay SSE| W
 ```
@@ -83,17 +102,22 @@ does not need to understand how an agent was implemented. Read
 [Architecture](docs/ARCHITECTURE.md) for component responsibilities and runtime
 sequence.
 
-## Demo mode versus live mode
+## Demo, benchmark, and live modes
 
-| | Demo | Live providers |
-|---|---|---|
-| API key | None | At least one supported provider key |
-| Network | None | Provider requests; search tool may use the network |
-| Agent output | Deterministic simulation | Model-generated |
-| Host shell | Disabled | Disabled unless explicitly enabled |
-| Best use | Evaluation, UI testing, contribution setup | Experimental local tasks |
+| | Demo | Swarm 100 benchmark | Live providers |
+|---|---|---|---|
+| API key | None | None | User-supplied |
+| Network | None | None | Provider requests; search may use network |
+| Agent output | 4-role simulation | 100-agent simulation | Model-generated |
+| Scale purpose | Product walkthrough | Scheduler evidence | Useful user work |
+| Host shell | Never | Never | Off unless explicitly enabled |
 
-To try live execution:
+To try live execution, open **Providers** in the header. Add one or more
+providers/models, set the role routing matrix, and choose separate Agent and
+concurrency limits. Inline API keys exist only in API process memory and are
+never returned by `GET`.
+
+Environment-only configuration remains available:
 
 ```bash
 cp .env.example .env
@@ -112,7 +136,7 @@ Never commit `.env`. Provider requests can incur cost. Review
 | `SWARM_MODEL` | — | LiteLLM provider-qualified model name |
 | `SWARM_API_BASE` | — | OpenAI-compatible provider base URL |
 | `SWARM_API_KEY` | — | Provider credential; never commit it |
-| `MAX_CONCURRENT_SUBAGENTS` | `5` | Process-wide upper bound, capped at 8 by the API |
+| `SWARM_GLOBAL_AGENT_CAP` | `8` | Process-wide live/benchmark Agent limit, maximum 100 |
 | `ALLOW_LOCAL_EXECUTION` | `false` | Explicit opt-in for host shell execution |
 | `WORKSPACE_ROOT` | `data/workspace` | Canonical root for file and shell tools |
 | `SWARM_CORS_ORIGINS` | local port 3000 | Comma-separated browser origins |
@@ -135,9 +159,19 @@ Agents can turn untrusted model output into tool calls. That is a real security
 boundary, even for a local application.
 
 - Host shell execution is off by default.
+- Provider keys submitted in the UI are write-only and process-memory-only.
+- Native provider types use their official LiteLLM endpoint; arbitrary Base
+  URLs require the explicit OpenAI-compatible or local-provider path.
+- Provider-panel remote custom endpoints require HTTPS; literal and currently
+  resolved private addresses are rejected unless local advanced mode is
+  explicitly enabled. This is not a request-time egress proxy.
+- The API and web starter bind to loopback, CORS is local, and Host headers are
+  restricted.
 - File paths are resolved canonically and symlink escapes are rejected.
 - Real secrets are ignored; only `.env.example` is tracked.
 - The public demo does not use models, the network, or host tools.
+- Do not put passwords, API keys, or personal secrets in prompts or tool input:
+  local task/event history is observable until it is evicted from memory.
 - CI runs CodeQL, dependency updates, and secret scanning.
 
 This beta is not a hardened sandbox. Do not run untrusted live tasks with local
@@ -146,10 +180,15 @@ execution enabled. Read [SECURITY.md](SECURITY.md) and
 
 ## Known limitations
 
-- Checkpoints and event replay are process-local and are lost after restart.
-- Live provider behavior depends on third-party APIs and has mocked CI tests.
-- Cancellation, public share links, browser automation, E2B sessions, MCP
-  discovery, and git worktree merge automation are not implemented.
+- Checkpoints, provider profiles, and event replay are process-local and are
+  lost after restart.
+- The 100-concurrent-request test uses a local OpenAI-compatible contract
+  server. A contributor-owned real-provider canary is still required before
+  making claims about any named vendor.
+- USD cost enforcement is not available for unknown custom models; hard call,
+  tool, step, concurrency, and time budgets are enforced instead.
+- Public share links, browser automation, E2B sessions, MCP discovery, durable
+  recovery, and isolated worktree merging are not implemented.
 - The demo proves the product/event path, not model quality or benchmark gains.
 - There is no authentication or multi-tenant isolation; bind to localhost only.
 
@@ -163,7 +202,8 @@ apps/
   api/             FastAPI task and SSE endpoints
   web/             Next.js observable agent console
 packages/
-  orchestrator/    Demo runner and LangGraph orchestration
+  orchestrator/    Demo, benchmark, capacity, budgets, and LangGraph runtime
+  llm_gateway/     Multi-provider profiles and LiteLLM role routing
   eventbus/        Wildcard topic delivery and bounded replay
   worker/          Model/tool loop and role prompts
   tools/           Supported workspace tools

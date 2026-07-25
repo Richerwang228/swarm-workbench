@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
+from contextlib import suppress
 from pathlib import Path
 
 from packages.tools.registry import register_tool
@@ -74,6 +76,7 @@ async def _bash_local(command: str, timeout: int, workdir: str) -> str:
         "PATH": os.getenv("PATH", "/usr/bin:/bin"),
     }
 
+    proc: asyncio.subprocess.Process | None = None
     try:
         proc = await asyncio.create_subprocess_shell(
             command,
@@ -81,14 +84,33 @@ async def _bash_local(command: str, timeout: int, workdir: str) -> str:
             stderr=asyncio.subprocess.STDOUT,
             cwd=cwd,
             env=clean_env,
+            start_new_session=True,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         output = stdout.decode("utf-8", errors="replace") if stdout else ""
         return output[:8000] if len(output) > 8000 else output
     except TimeoutError:
+        await _terminate_process_group(proc)
         return f"Error: command timed out after {timeout}s"
+    except asyncio.CancelledError:
+        await _terminate_process_group(proc)
+        raise
     except Exception as exc:
         return f"Error: {exc}"
+
+
+async def _terminate_process_group(proc: asyncio.subprocess.Process | None) -> None:
+    """Terminate the shell and every child it started."""
+    if proc is None or proc.returncode is not None:
+        return
+    with suppress(ProcessLookupError):
+        os.killpg(proc.pid, signal.SIGTERM)
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=0.5)
+    except TimeoutError:
+        with suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        await proc.wait()
 
 
 register_tool("bash", SCHEMA, bash_handler)

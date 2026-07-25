@@ -16,6 +16,9 @@ No bounty is offered.
 
 ## Deployment warning
 
-Swarm Workbench has no authentication or tenant isolation. Bind it to localhost.
-Host shell execution is disabled by default and should remain disabled for
-untrusted prompts. See [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md).
+Swarm Workbench has no authentication or tenant isolation. Bind it to localhost
+and do not deploy it as a shared public service. UI-submitted provider keys are
+process-memory-only, but still grant billable access while the process is alive.
+Custom Base URLs are an advanced local feature, not a hardened SSRF-safe hosted
+gateway. Host shell execution is disabled by default and should remain disabled
+for untrusted prompts. See [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md).

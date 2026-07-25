@@ -2,6 +2,8 @@
 
 import { useSwarmStore, type TodoItem } from "@/lib/store";
 
+const MAX_VISIBLE_TODOS = 24;
+
 const STATUS_ICON: Record<TodoItem["status"], string> = {
   pending: "○",
   running: "◐",
@@ -58,7 +60,10 @@ export function TodoList() {
   if (todos.length === 0) return null;
 
   const done = todos.filter((t) => t.status === "done").length;
+  const running = todos.filter((t) => t.status === "running").length;
+  const failed = todos.filter((t) => t.status === "failed").length;
   const pct  = todos.length ? (done / todos.length) * 100 : 0;
+  const visibleTodos = getVisibleTodos(todos);
 
   return (
     <div>
@@ -78,9 +83,33 @@ export function TodoList() {
           />
         </div>
       </div>
+      {todos.length > MAX_VISIBLE_TODOS && (
+        <div className="mx-4 mb-2 flex items-center justify-between rounded border border-gh-border bg-gh-muted/20 px-2 py-1 font-mono text-[9px] text-gh-dim">
+          <span>{running} running · {failed} failed</span>
+          <span>showing {visibleTodos.length}/{todos.length}</span>
+        </div>
+      )}
       <div>
-        {todos.map((t) => <TodoRow key={t.id} todo={t} />)}
+        {visibleTodos.map((t) => <TodoRow key={t.id} todo={t} />)}
       </div>
     </div>
   );
+}
+
+function getVisibleTodos(todos: TodoItem[]): TodoItem[] {
+  if (todos.length <= MAX_VISIBLE_TODOS) return todos;
+
+  const priority = todos.filter((todo) =>
+    todo.status === "running" || todo.status === "failed"
+  );
+  const pending = todos.filter((todo) => todo.status === "pending");
+  const done = todos.filter((todo) => todo.status === "done").reverse();
+  const selected = [...priority, ...pending, ...done];
+  const seen = new Set<string>();
+
+  return selected.filter((todo) => {
+    if (seen.size >= MAX_VISIBLE_TODOS || seen.has(todo.id)) return false;
+    seen.add(todo.id);
+    return true;
+  });
 }

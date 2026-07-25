@@ -5,6 +5,7 @@
 
 import { useEffect, useRef } from "react";
 import { useSwarmStore } from "./store";
+import type { BenchmarkReport } from "./api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -54,6 +55,9 @@ function dispatchEvent(data: Record<string, unknown>, store: Store) {
   switch (type) {
     case "task.started":
       store.setTaskStatus("running");
+      if (data.mode === "benchmark") {
+        store.setMode("benchmark");
+      }
       break;
 
     case "task.completed":
@@ -65,6 +69,11 @@ function dispatchEvent(data: Record<string, unknown>, store: Store) {
       store.setTaskStatus("failed");
       break;
 
+    case "task.cancelled":
+      store.setTaskStatus("cancelled");
+      store.flushStreaming();
+      break;
+
     case "agent.spawned":
       store.spawnAgent({
         agentId: (data.agent_id as string) ?? "",
@@ -74,6 +83,7 @@ function dispatchEvent(data: Record<string, unknown>, store: Store) {
         toolCalls: 0,
         tokenCount: 0,
         elapsedMs: 0,
+        recovered: false,
         lastAction: "",
         spawnedAt: Date.now(),
       });
@@ -88,8 +98,16 @@ function dispatchEvent(data: Record<string, unknown>, store: Store) {
       break;
 
     case "agent.done":
-      store.updateAgentStatus(data.agent_id as string ?? "", "done");
+      store.updateAgentStatus((data.agent_id as string) ?? "", "done");
+      store.markAgentRecovered(
+        (data.agent_id as string) ?? "",
+        data.recovered === true,
+      );
       store.flushStreaming();
+      break;
+
+    case "agent.failed":
+      store.updateAgentStatus((data.agent_id as string) ?? "", "failed");
       break;
 
     case "agent.reasoning.delta":
@@ -132,7 +150,50 @@ function dispatchEvent(data: Record<string, unknown>, store: Store) {
       break;
     }
 
+    case "agent.retry.scheduled":
+      store.updateAgentStatus(
+        (data.agent_id as string) ?? "",
+        "running",
+        `retry ${String(data.next_attempt ?? "")}`.trim(),
+      );
+      break;
+
+    case "benchmark.started":
+      store.startBenchmark({
+        simulated: true,
+        agentCount: numberValue(data.agent_count),
+        completed: 0,
+        active: 0,
+        queued: numberValue(data.agent_count),
+        recovered: 0,
+        peakActive: 0,
+        processActive: 0,
+        maxConcurrency: numberValue(data.max_concurrency),
+        processCapacity: numberValue(data.process_capacity),
+        seed: numberValue(data.seed),
+      });
+      break;
+
+    case "benchmark.progress":
+      store.updateBenchmarkProgress({
+        completed: numberValue(data.completed),
+        active: numberValue(data.active),
+        queued: numberValue(data.queued),
+        recovered: numberValue(data.recovered),
+        peakActive: numberValue(data.peak_active),
+        processActive: numberValue(data.process_active),
+      });
+      break;
+
+    case "benchmark.completed":
+      store.setBenchmarkReport(data as unknown as BenchmarkReport);
+      break;
+
     default:
       break;
   }
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }

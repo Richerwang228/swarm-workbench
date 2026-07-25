@@ -10,6 +10,7 @@ from collections.abc import AsyncGenerator
 async def agent_loop(
     messages: list[dict],
     model: str = "worker",
+    role: str | None = None,
     tool_budget: int = 50,
     max_steps: int = 50,
     agent_id: str = "",
@@ -24,23 +25,25 @@ async def agent_loop(
     5. 无 tool_calls → done
     """
     import packages.tools  # noqa: F401
-    from packages.llm_gateway.router import call
+    from packages.llm_gateway.router import call, model_supports_tools
     from packages.llm_gateway.stream_parser import parse_stream
 
     # 构建 tool schema 列表（只在第一次调用时构建）
-    tool_schemas = _build_tool_schemas()
+    tool_schemas = _build_tool_schemas(role) if model_supports_tools(model, role) else []
 
     steps = 0
     max_steps = min(max_steps, max(1, tool_budget))
     while steps < max_steps:
         # ── 1. 调用 LLM ───────────────────────────────────────────────
-        stream = await call(
-            model=model,
-            messages=messages,
-            stream=True,
-            tools=tool_schemas,
-            tool_choice="auto",
-        )
+        request: dict = {
+            "model": model,
+            "role": role,
+            "messages": messages,
+            "stream": True,
+        }
+        if tool_schemas:
+            request.update({"tools": tool_schemas, "tool_choice": "auto"})
+        stream = await call(**request)
 
         content_parts: list[str] = []
         tool_calls: list[dict] = []
@@ -79,7 +82,13 @@ async def agent_loop(
 
 async def _execute_tool_calls(tool_calls: list[dict], agent_id: str) -> dict:
     """并行执行 tool calls，返回事件列表和 tool result messages。"""
+    from packages.orchestrator.budget import current_budget
     from packages.tools.registry import execute_tool
+
+    if len(tool_calls) > 8:
+        raise ValueError("an agent may request at most 8 tools in one model turn")
+    if ledger := current_budget():
+        await ledger.reserve_tool_calls(len(tool_calls))
 
     events: list[dict] = []
     result_messages: list[dict] = []
@@ -92,6 +101,8 @@ async def _execute_tool_calls(tool_calls: list[dict], agent_id: str) -> dict:
         try:
             args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
         except json.JSONDecodeError:
+            args = {}
+        if len(json.dumps(args, ensure_ascii=False)) > 20_000:
             args = {}
 
         start_event = {
@@ -123,16 +134,20 @@ async def _execute_tool_calls(tool_calls: list[dict], agent_id: str) -> dict:
                 "agent_id": agent_id,
             }
         except Exception as exc:
-            result_str = f"Error: {exc}"
+            result_str = f"Error: {type(exc).__name__}"
             done_event = {
                 "type": "agent.tool.error",
                 "tool": name,
                 "tool_call_id": tool_call_id,
-                "error": str(exc),
+                "error_type": type(exc).__name__,
                 "agent_id": agent_id,
             }
 
-        msg = {"role": "tool", "tool_call_id": tool_call_id, "content": result_str}
+        msg = {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": result_str[:8_000],
+        }
         return (start_event, done_event), msg
 
     tasks = [asyncio.create_task(_run_one(tc)) for tc in tool_calls]
@@ -149,14 +164,30 @@ async def _execute_tool_calls(tool_calls: list[dict], agent_id: str) -> dict:
     return {"events": events, "messages": result_messages}
 
 
-def _build_tool_schemas() -> list[dict]:
+def _build_tool_schemas(role: str | None = None) -> list[dict]:
     """将 registry 中的 schema 转换为 OpenAI tool_choice 格式。"""
     import packages.tools  # noqa: F401
     from packages.tools.registry import get_tool_schema, list_tools
 
     schemas = []
+    allowed = _ROLE_TOOLS.get(role) if role else None
     for name in list_tools():
+        if allowed is not None and name not in allowed:
+            continue
         schema = get_tool_schema(name)
         if schema:
             schemas.append({"type": "function", "function": schema})
     return schemas
+
+
+_READ_TOOLS = {"file_read", "file_grep", "file_glob", "web_search"}
+_TODO_TOOLS = {"todo_create", "todo_update", "todo_list"}
+_WRITE_TOOLS = {"file_write", "file_edit"}
+_ROLE_TOOLS = {
+    "pm": _READ_TOOLS | _TODO_TOOLS,
+    "designer": _READ_TOOLS | _TODO_TOOLS,
+    "frontend": _READ_TOOLS | _TODO_TOOLS | _WRITE_TOOLS | {"bash"},
+    "backend": _READ_TOOLS | _TODO_TOOLS | _WRITE_TOOLS | {"bash"},
+    "tester": _READ_TOOLS | _TODO_TOOLS | {"bash"},
+    "ops": _READ_TOOLS | _TODO_TOOLS | _WRITE_TOOLS | {"bash"},
+}

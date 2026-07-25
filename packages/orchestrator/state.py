@@ -9,7 +9,7 @@ from typing import Annotated, TypedDict
 class TodoItem(TypedDict):
     id: str
     description: str
-    status: str  # pending / running / done / failed
+    status: str  # pending / running / done / failed / skipped
     assigned_role: str
     depends_on: list[str]
     result: str | None
@@ -22,13 +22,14 @@ class SubAgentRun(TypedDict):
     status: str  # spawned / running / done / failed
     tool_calls: int
     tokens_used: int
+    result: str
 
 
 def merge_todos(left: list[TodoItem], right: list[TodoItem]) -> list[TodoItem]:
     """Merge parallel todo updates by id while preserving creation order."""
     merged = {item["id"]: item for item in left}
     order = [item["id"] for item in left]
-    status_rank = {"pending": 0, "running": 1, "failed": 2, "done": 3}
+    status_rank = {"pending": 0, "running": 1, "skipped": 2, "failed": 3, "done": 4}
     for item in right:
         if item["id"] not in merged:
             order.append(item["id"])
@@ -51,6 +52,10 @@ class OrchestratorState(TypedDict, total=False):
     current_step: int
     step_budget: int
     model_pref: str
+    role_models: dict[str, str]
+    agent_count: int
+    exact_agent_count: bool
+    planned: bool
     max_subagents: int
     interrupted: bool
     interrupt_message: str | None
@@ -59,3 +64,4 @@ class OrchestratorState(TypedDict, total=False):
     current_task: str
     current_role: str
     current_model: str
+    final_result: str

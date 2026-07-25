@@ -1,6 +1,6 @@
 [project]
 name = "swarm-workbench"
-version = "0.1.0b1"
+version = "0.2.0b1"
 description = "A local-first multi-agent orchestration workbench and reference implementation."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -24,7 +24,6 @@ dependencies = [
     # Utilities
     "httpx>=0.28.0",
     "shortuuid>=1.0.0",
-    "pyyaml>=6.0.0",
 ]
 
 [dependency-groups]
@@ -34,7 +33,6 @@ dev = [
     "pytest-cov>=6.0.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
-    "types-pyyaml>=6.0.12.20250516",
 ]
 
 [tool.ruff]

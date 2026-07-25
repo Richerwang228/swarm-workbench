@@ -24,6 +24,7 @@ async def run_worker(
     async for event in agent_loop(
         messages=messages,
         model=model,
+        role=role,
         tool_budget=tool_budget,
         agent_id=agent_id or f"{task_id}:{role}",
     ):

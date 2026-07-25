@@ -5,6 +5,30 @@ Notable changes follow [Keep a Changelog](https://keepachangelog.com/) and
 
 ## [Unreleased]
 
+## [0.2.0-beta.1] - 2026-07-26
+
+### Added
+
+- Fixed-plan live DAGs with up to 100 user-requested worker Agents.
+- A 100-simultaneous-request OpenAI-compatible contract test.
+- Multi-provider, multi-model profiles and nine role-to-model bindings.
+- Write-only process-memory provider configuration and a settings UI.
+- Process/model capacity, task call/tool/step/time budgets, and cancellation.
+- Hierarchical result reduction and high-density 100-Agent visualization.
+- Deterministic Swarm 100 benchmark, recovery injection, and JSON report.
+
+### Changed
+
+- Planner now runs once and later waves drain the validated plan.
+- Agent count and maximum concurrency are independent user controls.
+- Event replay is bounded per task group instead of one global history.
+- Shell timeout/cancellation terminates the whole child process group.
+- Live provider errors are reported by type without echoing sensitive details.
+
+### Removed
+
+- Unused single-provider client and obsolete dispatch/compaction modules.
+
 ## [0.1.0-beta.1] - 2026-07-25
 
 ### Added

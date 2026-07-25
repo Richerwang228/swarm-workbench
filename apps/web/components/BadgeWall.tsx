@@ -49,8 +49,13 @@ function AgentCard({ badge, index }: { badge: AgentBadge; index: number }) {
           {isRunning && (
             <span className="h-1.5 w-1.5 rounded-full bg-gh-green animate-pulse-dot" />
           )}
-          {isDone && (
-            <span className="h-1.5 w-1.5 rounded-full bg-gh-dim" />
+        {isDone && (
+            <span
+              className={[
+                "h-1.5 w-1.5 rounded-full",
+                badge.recovered ? "bg-gh-purple" : "bg-gh-dim",
+              ].join(" ")}
+            />
           )}
           {isFailed && (
             <span className="h-1.5 w-1.5 rounded-full bg-gh-red" />
@@ -89,7 +94,63 @@ function AgentCard({ badge, index }: { badge: AgentBadge; index: number }) {
 export function BadgeWall() {
   const agentOrder = useSwarmStore((s) => s.agentOrder);
   const agents     = useSwarmStore((s) => s.agents);
+  const mode = useSwarmStore((s) => s.mode);
+  const progress = useSwarmStore((s) => s.benchmarkProgress);
+  const report = useSwarmStore((s) => s.benchmarkReport);
   if (agentOrder.length === 0) return null;
+
+  const dense = mode === "benchmark" || agentOrder.length > 24;
+  if (dense) {
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded border border-gh-purple/30 bg-gh-purple/10 px-2 py-1 font-mono text-[9px] font-semibold tracking-widest text-gh-purple">
+            SIMULATED BENCHMARK
+          </span>
+          <span className="font-mono text-[10px] text-gh-dim">
+            100 logical agents · no live model calls
+          </span>
+          {report && (
+            <span className="ml-auto font-mono text-[9px] text-gh-dim/60">
+              trace {report.semantic_sha256.slice(0, 12)}
+            </span>
+          )}
+        </div>
+
+        <BenchmarkMetrics
+          completed={progress?.completed ?? countStatus(agentOrder, agents, "done")}
+          total={progress?.agentCount ?? agentOrder.length}
+          active={progress?.active ?? countStatus(agentOrder, agents, "running")}
+          queued={progress?.queued ?? countStatus(agentOrder, agents, "spawned")}
+          recovered={progress?.recovered ?? countRecovered(agentOrder, agents)}
+          peak={report?.peak_active ?? progress?.peakActive ?? 0}
+        />
+
+        <div
+          className="grid grid-cols-10 gap-1.5 rounded border border-gh-border bg-gh-panel/70 p-3"
+          aria-label="100 logical agent status matrix"
+        >
+          {agentOrder.map((id) => {
+            const badge = agents[id];
+            return badge ? <AgentDot key={id} badge={badge} /> : null;
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[9px] text-gh-dim">
+          <LegendDot color="bg-gh-dim/50" label="queued" />
+          <LegendDot color="bg-gh-blue" label="running" />
+          <LegendDot color="bg-gh-green" label="completed" />
+          <LegendDot color="bg-gh-purple" label="recovered" />
+          <LegendDot color="bg-gh-red" label="failed" />
+          {report && (
+            <span className="ml-auto">
+              {report.elapsed_ms.toFixed(0)} ms · {report.throughput_agents_s.toFixed(1)} agents/s
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-3 gap-2 xl:grid-cols-4">
@@ -99,4 +160,85 @@ export function BadgeWall() {
       })}
     </div>
   );
+}
+
+function AgentDot({ badge }: { badge: AgentBadge }) {
+  const color =
+    badge.status === "failed"
+      ? "bg-gh-red"
+      : badge.recovered
+        ? "bg-gh-purple"
+        : badge.status === "done"
+          ? "bg-gh-green"
+          : badge.status === "running"
+            ? "bg-gh-blue animate-pulse-dot"
+            : "bg-gh-dim/40";
+
+  return (
+    <span
+      className={`aspect-square min-h-2 rounded-[2px] transition-colors duration-300 ${color}`}
+      title={`${badge.agentId} · ${badge.role} · ${badge.recovered ? "recovered" : badge.status}`}
+      aria-label={`${badge.agentId}: ${badge.recovered ? "recovered" : badge.status}`}
+    />
+  );
+}
+
+function BenchmarkMetrics({
+  completed,
+  total,
+  active,
+  queued,
+  recovered,
+  peak,
+}: {
+  completed: number;
+  total: number;
+  active: number;
+  queued: number;
+  recovered: number;
+  peak: number;
+}) {
+  const metrics = [
+    { label: "progress", value: `${completed}/${total}`, color: "text-gh-green" },
+    { label: "active", value: active, color: "text-gh-blue" },
+    { label: "queued", value: queued, color: "text-gh-dim" },
+    { label: "recovered", value: recovered, color: "text-gh-purple" },
+    { label: "peak", value: peak, color: "text-gh-text" },
+  ];
+
+  return (
+    <div className="grid grid-cols-5 gap-2">
+      {metrics.map((metric) => (
+        <div key={metric.label} className="rounded border border-gh-border bg-gh-panel px-2.5 py-2">
+          <div className={`font-mono text-sm font-semibold tabular-nums ${metric.color}`}>
+            {metric.value}
+          </div>
+          <div className="mt-0.5 font-mono text-[8px] uppercase tracking-widest text-gh-dim">
+            {metric.label}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className={`h-1.5 w-1.5 rounded-[1px] ${color}`} />
+      {label}
+    </span>
+  );
+}
+
+function countStatus(
+  order: string[],
+  agents: Record<string, AgentBadge>,
+  status: AgentBadge["status"],
+) {
+  return order.reduce((count, id) => count + Number(agents[id]?.status === status), 0);
+}
+
+function countRecovered(order: string[], agents: Record<string, AgentBadge>) {
+  return order.reduce((count, id) => count + Number(agents[id]?.recovered), 0);
 }

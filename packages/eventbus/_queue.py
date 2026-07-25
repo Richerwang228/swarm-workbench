@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from collections import deque
+from collections import OrderedDict, deque
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Protocol
 
 _QUEUE_SIZE = 10_000
 _HISTORY_SIZE = 2_000
+_HISTORY_TOPICS = 32
 
 
 def _matches(pattern: str, subject: str) -> bool:
@@ -34,13 +35,20 @@ class _Subscription:
 class _Broker:
     def __init__(self) -> None:
         self._subscriptions: list[_Subscription] = []
-        self._history: deque[tuple[str, str]] = deque(maxlen=_HISTORY_SIZE)
+        self._history: OrderedDict[str, deque[tuple[int, str, str]]] = OrderedDict()
+        self._sequence = 0
         self._lock = asyncio.Lock()
 
     async def subscribe(self, pattern: str) -> tuple[asyncio.Queue[str], list[str]]:
         queue: asyncio.Queue[str] = asyncio.Queue(maxsize=_QUEUE_SIZE)
         async with self._lock:
-            replay = [message for subject, message in self._history if _matches(pattern, subject)]
+            matching = [
+                entry
+                for history in self._history.values()
+                for entry in history
+                if _matches(pattern, entry[1])
+            ]
+            replay = [message for _, _, message in sorted(matching)]
             self._subscriptions.append(_Subscription(pattern, queue))
         return queue, replay
 
@@ -54,7 +62,16 @@ class _Broker:
 
     async def publish(self, subject: str, message: str) -> None:
         async with self._lock:
-            self._history.append((subject, message))
+            self._sequence += 1
+            history_key = subject.rsplit(".", 1)[0]
+            history = self._history.setdefault(
+                history_key,
+                deque(maxlen=_HISTORY_SIZE),
+            )
+            history.append((self._sequence, subject, message))
+            self._history.move_to_end(history_key)
+            while len(self._history) > _HISTORY_TOPICS:
+                self._history.popitem(last=False)
             queues = [
                 subscription.queue
                 for subscription in self._subscriptions
@@ -73,6 +90,7 @@ class _Broker:
     def reset(self) -> None:
         self._subscriptions.clear()
         self._history.clear()
+        self._sequence = 0
 
 
 _broker = _Broker()

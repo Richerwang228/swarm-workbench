@@ -8,6 +8,7 @@ import { PromptInput } from "@/components/PromptInput";
 import { BadgeWall } from "@/components/BadgeWall";
 import { TodoList } from "@/components/TodoList";
 import { ActivityFeed } from "@/components/ActivityFeed";
+import { ProviderSettings } from "@/components/ProviderSettings";
 
 function StreamConnector() {
   const taskId = useSwarmStore((s) => s.taskId);
@@ -54,6 +55,9 @@ function GlobalStatus() {
       {taskStatus === "failed" && (
         <span className="text-gh-red">任务失败</span>
       )}
+      {taskStatus === "cancelled" && (
+        <span className="text-gh-amber">已取消</span>
+      )}
       <span className="text-gh-dim/40">#{taskId.slice(0, 8)}</span>
     </div>
   );
@@ -81,7 +85,10 @@ export default function Home() {
               PUBLIC BETA
             </span>
           </div>
-          <GlobalStatus />
+          <div className="flex items-center gap-3">
+            <GlobalStatus />
+            <ProviderSettings />
+          </div>
         </header>
 
         {/* ── Main ───────────────────────────────────────────────────── */}

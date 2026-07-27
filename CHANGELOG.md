@@ -5,6 +5,17 @@ Notable changes follow [Keep a Changelog](https://keepachangelog.com/) and
 
 ## [Unreleased]
 
+## [0.2.0-beta.2] - 2026-07-27
+
+### Changed
+
+- Rebuilt the console as an editorial task workspace: a product-led first
+  screen, legible execution topology, responsive runtime view, and reduced
+  control-room density.
+- Replaced the stale console screenshot with a matching repository overview.
+- Protected `main` on GitHub with required CI, CodeQL, and secret-scan checks;
+  force pushes and deletion are blocked.
+
 ## [0.2.0-beta.1] - 2026-07-26
 
 ### Added

@@ -1,6 +1,6 @@
 [project]
 name = "swarm-workbench"
-version = "0.2.0b1"
+version = "0.2.0b2"
 description = "A local-first multi-agent orchestration workbench and reference implementation."
 readme = "README.md"
 requires-python = ">=3.12"

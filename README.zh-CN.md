@@ -5,7 +5,7 @@
 **一个本地优先、多 Provider 的 Agent Runtime：最多编排 100 个真实模型
 Agent，并让用户自行决定不同角色使用哪一家 API 和哪个模型。**
 
-![Swarm Workbench 演示](docs/assets/swarm-workbench-demo.png)
+![Swarm Workbench 概览](docs/assets/swarm-workbench-overview.svg)
 
 > [!IMPORTANT]
 > 这是作品集级参考实现和公开 Beta，不是可直接暴露到公网的生产服务。

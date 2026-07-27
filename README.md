@@ -11,7 +11,7 @@
 **A local-first, multi-provider runtime for planning and observing up to 100
 live AI agents—with user-controlled model routing and concurrency.**
 
-![Swarm Workbench demo](docs/assets/swarm-workbench-demo.png)
+![Swarm Workbench overview](docs/assets/swarm-workbench-overview.svg)
 
 > [!IMPORTANT]
 > This is a portfolio-grade reference implementation and public beta, not a

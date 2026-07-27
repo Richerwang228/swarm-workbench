@@ -3,25 +3,35 @@
 @tailwind utilities;
 
 :root {
-  --font-inter: "Inter", system-ui, sans-serif;
-  --font-mono:  "JetBrains Mono", ui-monospace, monospace;
+  --font-sans: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --font-display: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
 }
 
-html, body { height: 100%; overflow: hidden; }
+html, body { min-height: 100%; }
 
 body {
-  background: #0D1117;
-  color: #C9D1D9;
-  font-family: var(--font-inter);
+  background: #F6F3EA;
+  color: #1E2925;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   font-size: 13px;
 }
 
 ::-webkit-scrollbar            { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track      { background: transparent; }
-::-webkit-scrollbar-thumb      { background: #30363D; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover{ background: #484F58; }
+::-webkit-scrollbar-thumb      { background: #C3B9A9; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover{ background: #AFA38F; }
 
-::selection { background: rgba(88,166,255,0.2); color: #C9D1D9; }
+::selection { background: rgba(45, 109, 120, 0.17); color: #1E2925; }
 
 pre, code { font-family: var(--font-mono); }
+
+.paper-grain {
+  background-image:
+    radial-gradient(circle at 20% 10%, rgba(185, 106, 46, 0.09), transparent 27rem),
+    radial-gradient(circle at 89% 31%, rgba(35, 120, 95, 0.10), transparent 25rem),
+    linear-gradient(115deg, rgba(255,255,255,0.7), rgba(246,243,234,0));
+}
+
+.hairline { box-shadow: 0 1px 0 rgba(30, 41, 37, 0.06); }

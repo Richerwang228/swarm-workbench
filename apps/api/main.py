@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Swarm API",
-    version="0.2.0-beta.1",
+    version="0.2.0-beta.2",
     lifespan=lifespan,
 )
 

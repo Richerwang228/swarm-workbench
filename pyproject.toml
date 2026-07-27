@@ -10,7 +10,7 @@ authors = [
 ]
 dependencies = [
     # Web framework
-    "fastapi>=0.115.0",
+    "fastapi>=0.140.2",
     "uvicorn[standard]>=0.34.0",
     "sse-starlette>=2.0.0",
     "websockets>=14.0",
